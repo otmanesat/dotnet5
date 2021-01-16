@@ -37,7 +37,11 @@ namespace HelloDotNet5
             services.AddSingleton<IItemsRepository, MongoDbItemsRepository>();
             services.AddSingleton<IWeatherClient,WeatherClient>();
             services.Configure<ServiceSettings>(Configuration.GetSection(nameof(ServiceSettings)));
-            services.AddControllers();
+            services.AddControllers(
+                options => {
+                    options.SuppressAsyncSuffixInActionNames = false;
+                }
+            );
             services.AddSwaggerGen(c =>
             {
                 c.SwaggerDoc("v1", new OpenApiInfo { Title = "HelloDotNet5", Version = "v1" });
