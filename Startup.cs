@@ -1,8 +1,13 @@
 using System;
+using System.Linq;
+using System.Net.Mime;
+using System.Text.Json;
 using HelloDotNet5.Configuration;
 using HelloDotNet5.Repositories;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -29,9 +34,9 @@ namespace HelloDotNet5
         {
             BsonSerializer.RegisterSerializer(new GuidSerializer(BsonType.String));
             BsonSerializer.RegisterSerializer(new DateTimeSerializer(BsonType.String));
+            var MongoSettings = Configuration.GetSection(nameof(MongoDbSettings)).Get<MongoDbSettings>();
             services.AddSingleton<IMongoClient>(serviceProvider => {
-                var settings = Configuration.GetSection(nameof(MongoDbSettings)).Get<MongoDbSettings>();
-                return new MongoClient(settings.ConnectionString);
+                return new MongoClient(MongoSettings.ConnectionString);
             });
             // services.AddSingleton<IItemsRepository, InMemItemsRepository>();
             services.AddSingleton<IItemsRepository, MongoDbItemsRepository>();
@@ -50,7 +55,14 @@ namespace HelloDotNet5
                  .AddTransientHttpErrorPolicy(builder => builder.WaitAndRetryAsync(10, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2,retryAttempt))))
                  .AddTransientHttpErrorPolicy(builder => builder.CircuitBreakerAsync(3,TimeSpan.FromSeconds(10)));
             services.AddHealthChecks()
-            .AddCheck<ExtenalEndPointHealthCheck>("OpenWeather");
+            .AddCheck<ExtenalEndPointHealthCheck>("OpenWeather")
+            .AddMongoDb(
+                MongoSettings.ConnectionString,
+                name:"Mongo Health Check",
+                timeout: TimeSpan.FromSeconds(5),
+                tags:new[]{"ready"}
+
+            );
 
         }
 
@@ -71,7 +83,27 @@ namespace HelloDotNet5
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();
-                endpoints.MapHealthChecks("health");
+                endpoints.MapHealthChecks("health/ready", new HealthCheckOptions{
+                    Predicate = (check) => check.Tags.Contains("ready"),
+                    ResponseWriter =  async (context,report) => {
+                        var result = JsonSerializer.Serialize(
+                            new {
+                                status = report.Status.ToString(),
+                                checks = report.Entries.Select( entry => new {
+                                    name = entry.Key,
+                                    status = entry.Value.Status.ToString(),
+                                    exception = entry.Value.Exception != null ? entry.Value.Exception.Message : "none",
+                                    duration = entry.Value.Duration.ToString()
+                                })
+                            }
+                        );
+                        context.Response.ContentType = MediaTypeNames.Application.Json;
+                        await context.Response.WriteAsync(result);
+                    }
+                });
+                endpoints.MapHealthChecks("health/live", new HealthCheckOptions{
+                    Predicate = (_) => false
+                });
             });
         }
     }
