@@ -2,6 +2,7 @@ using System;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
+using HelloDotNet5.Configuration;
 using Microsoft.Extensions.Options;
 
 namespace HelloDotNet5 {
